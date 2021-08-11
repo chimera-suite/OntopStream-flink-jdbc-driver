@@ -21,7 +21,6 @@ package com.ververica.flink.table.jdbc;
 import com.ververica.flink.table.gateway.rest.message.GetInfoResponseBody;
 import com.ververica.flink.table.gateway.rest.message.StatementExecuteResponseBody;
 import com.ververica.flink.table.gateway.rest.result.ColumnInfo;
-import com.ververica.flink.table.gateway.rest.result.TableSchemaUtil;
 import com.ververica.flink.table.jdbc.rest.RestUtils;
 import com.ververica.flink.table.jdbc.rest.SessionClient;
 import com.ververica.flink.table.jdbc.resulthandler.ResultHandlerFactory;
@@ -31,22 +30,39 @@ import com.ververica.flink.table.jdbc.type.FlinkSqlTypes;
 import org.apache.flink.api.common.JobID;
 import org.apache.flink.table.api.TableColumn;
 import org.apache.flink.table.api.TableSchema;
+import org.apache.flink.table.types.AtomicDataType;
+import org.apache.flink.table.types.DataType;
+import org.apache.flink.table.types.logical.BigIntType;
+import org.apache.flink.table.types.logical.BinaryType;
+import org.apache.flink.table.types.logical.BooleanType;
+import org.apache.flink.table.types.logical.CharType;
+import org.apache.flink.table.types.logical.DateType;
+import org.apache.flink.table.types.logical.DecimalType;
+import org.apache.flink.table.types.logical.DoubleType;
+import org.apache.flink.table.types.logical.FloatType;
 import org.apache.flink.table.types.logical.IntType;
 import org.apache.flink.table.types.logical.LogicalType;
 import org.apache.flink.table.types.logical.SmallIntType;
+import org.apache.flink.table.types.logical.TimeType;
+import org.apache.flink.table.types.logical.TimestampKind;
+import org.apache.flink.table.types.logical.TimestampType;
+import org.apache.flink.table.types.logical.TinyIntType;
+import org.apache.flink.table.types.logical.VarBinaryType;
 import org.apache.flink.table.types.logical.VarCharType;
 import org.apache.flink.types.Either;
 import org.apache.flink.types.Row;
 import org.apache.flink.util.Preconditions;
 
-import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.core.JsonProcessingException;
-
+import java.math.BigDecimal;
 import java.sql.Connection;
 import java.sql.DatabaseMetaData;
 import java.sql.ResultSet;
 import java.sql.RowIdLifetime;
 import java.sql.SQLException;
 import java.sql.SQLFeatureNotSupportedException;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -813,6 +829,7 @@ public class FlinkDatabaseMetaData implements DatabaseMetaData {
 		List<ColumnResultData> candidates = new ArrayList<>();
 		ResultSet tableResult = getTables(catalog, schemaPattern, tableNamePattern, SUPPORTED_TABLE_TYPES);
 		while (tableResult.next()) {
+			System.out.println(tableResult.getString(1) + "-" + tableResult.getString(2) + "-" + tableResult.getString(3)); //TODO:TO BE REMOVED
 			appendColumnsInTable(
 				tableResult.getString(1),
 				tableResult.getString(2),
@@ -844,6 +861,7 @@ public class FlinkDatabaseMetaData implements DatabaseMetaData {
 				matches.add(columnInfos.process(candidate));
 			}
 		}
+
 		return FlinkResultSet.of(new com.ververica.flink.table.gateway.rest.result.ResultSet(
 			columnInfos.getColumnInfos(), matches));
 	}
@@ -1214,7 +1232,7 @@ public class FlinkDatabaseMetaData implements DatabaseMetaData {
 		connection.setSchema(database);
 		ResultSet result = getImmediateSingleSqlResultSet("SHOW TABLES");
 		while (result.next()) {
-			candidates.add(new TableResultData(catalog, database, result.getString(1), result.getString(2)));
+			candidates.add(new TableResultData(catalog, database, result.getString(1), "TABLE"));
 		}
 	}
 
@@ -1235,11 +1253,130 @@ public class FlinkDatabaseMetaData implements DatabaseMetaData {
 			hasNext,
 			"DESCRIBE statement must return exactly " +
 				"one serialized table schema json string. This is a bug.");
-		try {
-			return TableSchemaUtil.readTableSchemaFromJson(result.getString(1));
-		} catch (JsonProcessingException e) {
-			throw new SQLException("Failed to parse json to table schema", e);
+
+		//Doc: https://ci.apache.org/projects/flink/flink-docs-stable/dev/table/sql/describe.html#run-a-describe-statement
+		ResultSet resulttest = getImmediateSingleSqlResultSet("DESCRIBE " + table);
+
+		List<String> fieldNames = new ArrayList<String>();
+		List<DataType> dataTypes = new ArrayList<DataType>();
+
+		//Primary key (if exists)
+		/*String keyName = null;
+		String[] keys = null;*/
+
+		TableSchema.Builder builder = new TableSchema.Builder();
+
+		while (resulttest.next()){
+			System.out.println(resulttest.getString(1) + " " + resulttest.getString(2) + " " + resulttest.getString(3));
+
+			// Add column name to the list
+			fieldNames.add(resulttest.getString(1));
+
+			// isNullable configuration parameter
+			boolean nullable = Boolean.parseBoolean(resulttest.getString(3));
+
+			String type = resulttest.getString(2);
+
+			// Extract datatype length/precision integer parameters
+			List<Integer> datatypeConf = extractDatatypeParameters(type);
+
+			/*
+			 * Datatypes conversion following the offical documentation
+			 * https://ci.apache.org/projects/flink/flink-docs-stable/dev/table/types.html#list-of-data-types
+			 */
+			if (type.contains("STRING")){
+				dataTypes.add(new AtomicDataType(new VarCharType(nullable, VarCharType.MAX_LENGTH), String.class));
+			} else if (type.contains("VARCHAR")){
+				int length = (datatypeConf.size() == 1) ? datatypeConf.get(0) : VarCharType.DEFAULT_LENGTH;
+				dataTypes.add(new AtomicDataType(new VarCharType(nullable, length), String.class));
+			} else if (type.contains("CHAR")){
+				int length = (datatypeConf.size() == 1) ? datatypeConf.get(0) : CharType.DEFAULT_LENGTH;
+				dataTypes.add(new AtomicDataType(new CharType(nullable, length), String.class));
+			} else if (type.contains("VARBINARY")) {
+				int length = (datatypeConf.size() == 1) ? datatypeConf.get(0) : VarBinaryType.DEFAULT_LENGTH;
+				dataTypes.add(new AtomicDataType(new VarBinaryType(nullable, length), byte[].class));
+			} else if (type.contains("BYTES")){
+				dataTypes.add(new AtomicDataType(new VarBinaryType(nullable, VarBinaryType.MAX_LENGTH), byte[].class));
+			} else if (type.contains("BINARY")){
+				int length = (datatypeConf.size() == 1) ? datatypeConf.get(0) : BinaryType.DEFAULT_LENGTH;
+				dataTypes.add(new AtomicDataType(new BinaryType(nullable, length), byte[].class));
+			} else if (type.contains("BOOLEAN")){
+				dataTypes.add(new AtomicDataType(new BooleanType(nullable), Boolean.class));
+			} else if (type.contains("DECIMAL") || type.contains("DEC") || type.contains("NUMERIC")){
+				int precision = (datatypeConf.size() >= 1) ? datatypeConf.get(0) : DecimalType.DEFAULT_PRECISION;
+				int scale = (datatypeConf.size() == 2) ? datatypeConf.get(1) : DecimalType.DEFAULT_SCALE;
+				dataTypes.add(new AtomicDataType(new DecimalType(nullable, precision, scale), BigDecimal.class));
+			} else if (type.contains("TINYINT") || type.contains("BYTE")){
+				dataTypes.add(new AtomicDataType(new TinyIntType(nullable), Byte.class));
+			} else if (type.contains("SMALLINT")){
+				dataTypes.add(new AtomicDataType(new SmallIntType(nullable), Short.class));
+			} else if (type.contains("BIGINT") || type.contains("LONG")){
+				dataTypes.add(new AtomicDataType(new BigIntType(nullable), Long.class));
+			} else if (type.contains("INT") || type.contains("INTEGER")){
+				dataTypes.add(new AtomicDataType(new IntType(nullable), Integer.class));
+			} else if (type.contains("FLOAT")){
+				dataTypes.add(new AtomicDataType(new FloatType(nullable), Float.class));
+			} else if (type.contains("DOUBLE")){
+				dataTypes.add(new AtomicDataType(new DoubleType(nullable), Double.class));
+			} else if (type.contains("DATE")){
+				dataTypes.add(new AtomicDataType(new DateType(nullable), LocalDate.class));
+			} else if (type.contains("TIMESTAMP")){
+				int precision = (datatypeConf.size() == 1) ? datatypeConf.get(0) : TimestampType.DEFAULT_PRECISION;
+				if (type.contains("*ROWTIME*")){
+					dataTypes.add(new AtomicDataType(new TimestampType(nullable, TimestampKind.ROWTIME, precision), LocalDateTime.class));
+				} else if (type.contains("*PROCTIME*")){
+					dataTypes.add(new AtomicDataType(new TimestampType(nullable, TimestampKind.PROCTIME, precision), LocalDateTime.class));
+				} else {
+					dataTypes.add(new AtomicDataType(new TimestampType(nullable, TimestampKind.REGULAR, precision), LocalDateTime.class));
+				}
+				//TODO: extend support to "TIMESTAMP WITH TIME ZONE"
+			} else if (type.contains("TIME")){
+				int precision = (datatypeConf.size() == 1) ? datatypeConf.get(0) : TimeType.DEFAULT_PRECISION;
+				dataTypes.add(new AtomicDataType(new TimeType(nullable, precision), LocalTime.class));
+				// TODO: extend support to "INTERVAL...."
+			} else {
+				throw new SQLException("UNRECOGNIZED DATATYPE");
+			}
+
+			//PrimaryKey
+			/*if (resulttest.getString(4) != null){
+				keyName = resulttest.getString(1);
+				keys = extractPrimaryKeys(resulttest.getString(4));
+			}*/
 		}
+
+		String[] x = new String[fieldNames.size()];
+		x = fieldNames.toArray(x);
+
+		DataType[] y = new DataType[dataTypes.size()];
+		y = dataTypes.toArray(y);
+
+		//Set PrimaryKey
+		/*if (keyName != null){
+			builder.primaryKey(keyName, keys);
+		}*/
+
+		return builder.fields(x, y).build();
+	}
+
+	// Extract datatype length/precision integer parameters
+	private List<Integer> extractDatatypeParameters(String datatypeText){
+		String numbersLine = datatypeText.replaceAll("[^0-9]+", " ");
+		String[] strArray = numbersLine.split(" ");
+		List<Integer> datatypeConf = new ArrayList<>();
+		for (String string : strArray) {
+			if (!string.equals("")) {
+				datatypeConf.add(Integer.parseInt(string));
+			}
+		}
+		return datatypeConf;
+	}
+
+	private String[] extractPrimaryKeys(String primaryKeyText){
+		primaryKeyText.replace("PRI(", "");
+		primaryKeyText.replace(")", "");
+		primaryKeyText.replace(" ", "");
+		return primaryKeyText.split(",");
 	}
 
 	private void appendColumnsInTable(
@@ -1330,6 +1467,9 @@ public class FlinkDatabaseMetaData implements DatabaseMetaData {
 			return Row.of(data.catalog, data.database, data.table, data.type, null, null, null, null, null, null);
 		}
 
+		/*
+		 * https://docs.oracle.com/javase/7/docs/api/java/sql/DatabaseMetaData.html#getTables(java.lang.String,%20java.lang.String,%20java.lang.String,%20java.lang.String[])
+		 */
 		List<ColumnInfo> getColumnInfos() {
 			// according to the java doc of DatabaseMetaData#getTables
 			return Arrays.asList(
@@ -1404,13 +1544,14 @@ public class FlinkDatabaseMetaData implements DatabaseMetaData {
 				data.table, // TABLE_NAME
 				data.column, // COLUMN_NAME
 				data.sqlType.getSqlType(), // DATA_TYPE
-				data.logicalType.toString(), // TYPE_NAME
+				data.logicalType.asSerializableString().replace(" NOT NULL", ""), // TYPE_NAME
 				data.sqlType.getPrecision(), // COLUMN_SIZE
 				null, // BUFFER_LENGTH unused
 				isNumeric ? data.sqlType.getSqlType() : null, // DECIMAL_DIGITS
 				isNumeric ? 10 : null, // NUM_PREC_RADIX
 				data.logicalType.isNullable() ? columnNullable : columnNoNulls, // NULLABLE
-				null, // REMARKS
+				(data.logicalType instanceof TimestampType) ?
+						(((TimestampType) data.logicalType).getKind().equals(TimestampKind.ROWTIME) ? "*ROWTIME*" : "") : "", // REMARKS
 				null, // COLUMN_DEF
 				null, // SQL_DATA_TYPE unused
 				null, // SQL_DATETIME_SUB unused
@@ -1426,6 +1567,9 @@ public class FlinkDatabaseMetaData implements DatabaseMetaData {
 			);
 		}
 
+		/*
+		 * https://docs.oracle.com/javase/7/docs/api/java/sql/DatabaseMetaData.html#getColumns(java.lang.String,%20java.lang.String,%20java.lang.String,%20java.lang.String)
+		 */
 		public List<ColumnInfo> getColumnInfos() {
 			// according to the java doc of DatabaseMetaData#getColumns
 			return Arrays.asList(

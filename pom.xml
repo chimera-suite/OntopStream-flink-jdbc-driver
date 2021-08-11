@@ -24,7 +24,7 @@ under the License.
     <artifactId>flink-jdbc-driver</artifactId>
     <groupId>com.ververica</groupId>
     <name>flink-jdbc-driver</name>
-    <version>0.1-SNAPSHOT</version>
+    <version>ONTOP-STREAMING</version>
 
     <packaging>jar</packaging>
 
@@ -101,6 +101,18 @@ under the License.
             <artifactId>flink-test-utils_${scala.binary.version}</artifactId>
             <version>${flink.version}</version>
             <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.flink</groupId>
+            <artifactId>flink-streaming-java_2.11</artifactId>
+            <version>1.10.0</version>
+            <scope>compile</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.flink</groupId>
+            <artifactId>flink-table-api-java</artifactId>
+            <version>1.10.0</version>
+            <scope>compile</scope>
         </dependency>
     </dependencies>
 

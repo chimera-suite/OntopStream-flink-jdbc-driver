@@ -27,6 +27,13 @@ import org.apache.flink.api.common.JobID;
 import org.apache.flink.types.Either;
 import org.apache.flink.util.Preconditions;
 
+import javax.xml.transform.Result;
+import javax.xml.transform.Source;
+
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.io.Reader;
+import java.io.Writer;
 import java.sql.Array;
 import java.sql.Blob;
 import java.sql.CallableStatement;
@@ -218,12 +225,15 @@ public class FlinkConnection implements Connection {
 
 	@Override
 	public void clearWarnings() throws SQLException {
-		throw new SQLFeatureNotSupportedException("FlinkConnection#clearWarnings is not supported");
+		return;
+		//throw new SQLFeatureNotSupportedException("FlinkConnection#clearWarnings is not supported");
 	}
 
 	@Override
 	public Statement createStatement(int resultSetType, int resultSetConcurrency) throws SQLException {
-		throw new SQLFeatureNotSupportedException("FlinkConnection#createStatement is not supported");
+		System.out.println("---------------STATEMENT---------------"); //TODO:TO BE REMOVED
+		return createStatement();
+		//throw new SQLFeatureNotSupportedException("FlinkConnection#createStatement is not supported");
 	}
 
 	@Override
@@ -323,7 +333,54 @@ public class FlinkConnection implements Connection {
 
 	@Override
 	public SQLXML createSQLXML() throws SQLException {
-		throw new SQLFeatureNotSupportedException("FlinkConnection#createSQLXML is not supported");
+		System.out.println("---------------SQLXML---------------"); //TODO:TO BE REMOVED
+		return new SQLXML() {
+			@Override
+			public void free() throws SQLException {
+
+			}
+
+			@Override
+			public InputStream getBinaryStream() throws SQLException {
+				return null;
+			}
+
+			@Override
+			public OutputStream setBinaryStream() throws SQLException {
+				return null;
+			}
+
+			@Override
+			public Reader getCharacterStream() throws SQLException {
+				return null;
+			}
+
+			@Override
+			public Writer setCharacterStream() throws SQLException {
+				return null;
+			}
+
+			@Override
+			public String getString() throws SQLException {
+				return null;
+			}
+
+			@Override
+			public void setString(String s) throws SQLException {
+
+			}
+
+			@Override
+			public <T extends Source> T getSource(Class<T> aClass) throws SQLException {
+				return null;
+			}
+
+			@Override
+			public <T extends Result> T setResult(Class<T> aClass) throws SQLException {
+				return null;
+			}
+		};
+		//throw new SQLFeatureNotSupportedException("FlinkConnection#createSQLXML is not supported");
 	}
 
 	@Override
@@ -445,7 +502,7 @@ public class FlinkConnection implements Connection {
 
 	private SessionClient createSession(String url) throws Exception {
 		UrlInfo urlInfo = parseUrl(url);
-		return new SessionClient(urlInfo.host, urlInfo.port, "Flink-JDBC", urlInfo.planner, "batch", "Flink-JDBC-Connection-IO");
+		return new SessionClient(urlInfo.host, urlInfo.port, "Flink-JDBC", urlInfo.planner, "streaming", "Flink-JDBC-Connection-IO");
 	}
 
 	/**
